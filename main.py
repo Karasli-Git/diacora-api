@@ -147,6 +147,15 @@ def verify_token(token: str) -> str:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # ============================================================================
+# ENDPOINTS - HEALTH
+# ============================================================================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "ok", "message": "FastAPI is running!"}
+
+# ============================================================================
 # ENDPOINTS - AUTHENTICATION
 # ============================================================================
 
