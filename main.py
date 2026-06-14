@@ -150,10 +150,87 @@ def verify_token(token: str) -> str:
 # ENDPOINTS - HEALTH
 # ============================================================================
 
+def init_database():
+    """Initialize database tables on startup"""
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+        
+        # Users table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            name VARCHAR(255),
+            age INTEGER,
+            country_code VARCHAR(5),
+            language VARCHAR(10),
+            diabetes_type VARCHAR(50),
+            has_hypertension BOOLEAN,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # Measurements table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS measurements (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            blood_sugar FLOAT,
+            blood_pressure_systolic INTEGER,
+            blood_pressure_diastolic INTEGER,
+            weight FLOAT,
+            notes TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # Moods table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS moods (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            mood_level INTEGER,
+            energy_level INTEGER,
+            stress_level INTEGER,
+            notes TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        # Medications table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS medications (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            medication_name VARCHAR(255),
+            dosage VARCHAR(100),
+            frequency VARCHAR(100),
+            start_date DATE,
+            end_date DATE,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Database tables initialized successfully!")
+    except Exception as e:
+        print(f"⚠️ Database initialization warning: {e}")
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_database()
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "ok", "message": "FastAPI is running!"}
+    return {"status": "ok", "message": "FastAPI is running!", "database": "initialized"}
 
 # ============================================================================
 # ENDPOINTS - AUTHENTICATION
