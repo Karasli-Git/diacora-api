@@ -18,7 +18,7 @@ from psycopg2.extras import RealDictCursor
 # CONFIGURATION
 # ============================================================================
 
-DATABASE_URL = "postgresql://postgres:OQIUQoTxVL0hbGnomjSQPbDDMPyXlvkE@junction.proxy.rlwy.net:58308/railway"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:OQIUQoTxVL0hbGnomjSQPbDDMPyXlvkE@junction.proxy.rlwy.net:58308/railway")
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 saat
