@@ -228,9 +228,9 @@ async def startup_event():
     init_database()
 
 @app.get("/health")
-async def health_check():
+def health():
     """Health check endpoint"""
-    return {"status": "ok", "message": "FastAPI is running!", "database": "initialized"}
+    return {"status": "ok"}
 
 # ============================================================================
 # ENDPOINTS - AUTHENTICATION
@@ -570,19 +570,6 @@ async def get_moods(days: int = 30, token: str = None, conn=Depends(get_db)):
         
     finally:
         cursor.close()
-
-# ============================================================================
-# HEALTH CHECK
-# ============================================================================
-
-@app.get("/health")
-async def health_check():
-    """API sağlık durumu kontrol"""
-    return {
-        "status": "ok",
-        "timestamp": datetime.utcnow(),
-        "api_version": "1.0.0"
-    }
 
 # ============================================================================
 # ROOT
