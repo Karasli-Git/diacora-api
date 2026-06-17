@@ -237,14 +237,10 @@ def init_database():
     except Exception as e:
         print(f"⚠️ Database initialization warning: {e}")
 
-# Initialize database on startup
-@app.on_event("startup")
-async def startup_event():
-    init_database()
-
 @app.get("/health")
 def health():
     """Health check endpoint"""
+    init_database()
     return {"status": "ok"}
 
 # ============================================================================
