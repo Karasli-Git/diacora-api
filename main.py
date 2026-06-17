@@ -44,10 +44,15 @@ app.add_middleware(
 
 def get_db():
     """Database bağlantısı al"""
+    if not DATABASE_URL:
+        print("❌ DATABASE_URL not set — cannot open database connection")
+        raise HTTPException(status_code=503, detail="Database not configured")
     try:
         conn = psycopg2.connect(DATABASE_URL)
         yield conn
         conn.close()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Database bağlantı hatası: {e}")
         raise
@@ -152,6 +157,9 @@ def verify_token(token: str) -> str:
 
 def init_database():
     """Initialize database tables on startup"""
+    if not DATABASE_URL:
+        print("❌ DATABASE_URL not set — skipping database initialization")
+        return
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cursor = conn.cursor()
@@ -240,8 +248,13 @@ def init_database():
 @app.get("/health")
 def health():
     """Health check endpoint"""
+    if not DATABASE_URL:
+        return {
+            "status": "degraded",
+            "database": "not configured — DATABASE_URL is not set",
+        }
     init_database()
-    return {"status": "ok"}
+    return {"status": "ok", "database": "configured"}
 
 # ============================================================================
 # ENDPOINTS - AUTHENTICATION
