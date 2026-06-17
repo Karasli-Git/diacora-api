@@ -195,8 +195,11 @@ def init_database():
             mood_level INTEGER,
             energy_level INTEGER,
             stress_level INTEGER,
+            emoji VARCHAR,
+            mood_date DATE,
             notes TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (user_id, mood_date)
         );
         """)
         
@@ -215,6 +218,18 @@ def init_database():
         );
         """)
         
+        # Sync logs table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sync_logs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sync_id VARCHAR(255) UNIQUE,
+            status VARCHAR(50),
+            items_synced INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
         conn.commit()
         cursor.close()
         conn.close()
