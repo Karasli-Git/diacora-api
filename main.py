@@ -327,7 +327,7 @@ async def register(request: RegisterRequest, conn=Depends(get_db)):
         
         return TokenResponse(
             access_token=access_token,
-            user_id=user["id"],
+            user_id=str(user["id"]),  # Convert SERIAL int to string
             name=user["name"],
             email=user["email"]
         )
@@ -378,7 +378,7 @@ async def login(request: LoginRequest, conn=Depends(get_db)):
         
         return TokenResponse(
             access_token=access_token,
-            user_id=user["id"],
+            user_id=str(user["id"]),  # Convert SERIAL int to string
             name=user["name"],
             email=user["email"]
         )
