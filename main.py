@@ -18,7 +18,18 @@ from psycopg2.extras import RealDictCursor
 # CONFIGURATION
 # ============================================================================
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Build DATABASE_URL from Postgres variables
+PGHOST = os.getenv("PGHOST")
+PGPORT = os.getenv("PGPORT", "5432")
+PGUSER = os.getenv("PGUSER")
+PGPASSWORD = os.getenv("PGPASSWORD")
+PGDATABASE = os.getenv("PGDATABASE")
+
+if all([PGHOST, PGUSER, PGPASSWORD, PGDATABASE]):
+    DATABASE_URL = f"postgresql://{PGUSER}:{PGPASSWORD}@{PGHOST}:{PGPORT}/{PGDATABASE}"
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 saat
