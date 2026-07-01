@@ -3,7 +3,7 @@ Diacora Health - FastAPI Backend
 /auth/register, /auth/login, /sync endpoints
 """
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
@@ -13,6 +13,9 @@ import os
 from typing import Optional, List
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # ============================================================================
 # CONFIGURATION
@@ -30,9 +33,22 @@ if all([PGHOST, PGUSER, PGPASSWORD, PGDATABASE]):
 else:
     DATABASE_URL = os.getenv("DATABASE_URL")
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-change-in-production")
+# ✅ SECRET_KEY validation - MUST be set in production
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("❌ CRITICAL: SECRET_KEY environment variable must be set!")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 saat
+
+# ✅ CORS - Only allowed origins
+ALLOWED_ORIGINS = [
+    "https://www.diasaglik.com",
+    "https://www.diacorahealth.com",
+    "https://illustrious-tranquility-production-617f.up.railway.app",
+    "http://localhost:3000",  # Development only
+    "http://localhost:8000",  # Development only
+]
 
 app = FastAPI(
     title="Diacora Health API",
@@ -40,14 +56,26 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS ayarları
+# ✅ CORS middleware - Restricted origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
 )
+
+# ✅ Rate Limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return {
+        "detail": "Rate limit exceeded. Please try again later.",
+        "retry_after": exc.detail
+    }
 
 # ============================================================================
 # DATABASE CONNECTION
@@ -272,7 +300,8 @@ def health():
 # ============================================================================
 
 @app.post("/auth/register", response_model=TokenResponse)
-async def register(request: RegisterRequest, conn=Depends(get_db)):
+@limiter.limit("5/minute")  # ✅ Rate limit: 5 registrations per minute
+async def register(request: Request, req: RegisterRequest, conn=Depends(get_db)):
     """
     Kullanıcı kaydı
     
@@ -294,12 +323,12 @@ async def register(request: RegisterRequest, conn=Depends(get_db)):
     
     try:
         # Kullanıcı zaten var mı kontrol et
-        cursor.execute("SELECT id FROM users WHERE email = %s", (request.email,))
+        cursor.execute("SELECT id FROM users WHERE email = %s", (req.email,))
         if cursor.fetchone():
             raise HTTPException(status_code=400, detail="Email already registered")
         
         # Şifreyi hash'le
-        password_hash = hash_password(request.password)
+        password_hash = hash_password(req.password)
         
         # Kullanıcı oluştur
         cursor.execute("""
@@ -309,14 +338,14 @@ async def register(request: RegisterRequest, conn=Depends(get_db)):
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id, email, name
         """, (
-            request.email,
+            req.email,
             password_hash,
-            request.name,
-            request.age,
-            request.country_code,
-            request.language,
-            request.diabetes_type,
-            request.has_hypertension
+            req.name,
+            req.age,
+            req.country_code,
+            req.language,
+            req.diabetes_type,
+            req.has_hypertension
         ))
         
         user = cursor.fetchone()
@@ -327,7 +356,7 @@ async def register(request: RegisterRequest, conn=Depends(get_db)):
         
         return TokenResponse(
             access_token=access_token,
-            user_id=str(user["id"]),  # Convert SERIAL int to string
+            user_id=str(user["id"]),
             name=user["name"],
             email=user["email"]
         )
@@ -341,7 +370,8 @@ async def register(request: RegisterRequest, conn=Depends(get_db)):
         cursor.close()
 
 @app.post("/auth/login", response_model=TokenResponse)
-async def login(request: LoginRequest, conn=Depends(get_db)):
+@limiter.limit("10/minute")  # ✅ Rate limit: 10 login attempts per minute
+async def login(request: Request, req: LoginRequest, conn=Depends(get_db)):
     """
     Kullanıcı girişi
     
@@ -359,11 +389,11 @@ async def login(request: LoginRequest, conn=Depends(get_db)):
         # Kullanıcı bul
         cursor.execute(
             "SELECT id, email, name, password_hash FROM users WHERE email = %s",
-            (request.email,)
+            (req.email,)
         )
         user = cursor.fetchone()
         
-        if not user or not verify_password(request.password, user["password_hash"]):
+        if not user or not verify_password(req.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         # Token oluştur
@@ -378,7 +408,7 @@ async def login(request: LoginRequest, conn=Depends(get_db)):
         
         return TokenResponse(
             access_token=access_token,
-            user_id=str(user["id"]),  # Convert SERIAL int to string
+            user_id=str(user["id"]),
             name=user["name"],
             email=user["email"]
         )
@@ -395,7 +425,8 @@ async def login(request: LoginRequest, conn=Depends(get_db)):
 # ============================================================================
 
 @app.post("/sync", response_model=SyncResponse)
-async def sync_data(request: SyncRequest, conn=Depends(get_db)):
+@limiter.limit("30/minute")  # ✅ Rate limit: 30 syncs per minute
+async def sync_data(request: Request, req: SyncRequest, conn=Depends(get_db)):
     """
     iOS'ten senkronizasyon
     
@@ -440,7 +471,7 @@ async def sync_data(request: SyncRequest, conn=Depends(get_db)):
     
     try:
         # Kullanıcı var mı kontrol et
-        cursor.execute("SELECT id FROM users WHERE id = %s", (request.user_id,))
+        cursor.execute("SELECT id FROM users WHERE id = %s", (req.user_id,))
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -449,20 +480,20 @@ async def sync_data(request: SyncRequest, conn=Depends(get_db)):
             INSERT INTO sync_logs (user_id, sync_id, status)
             VALUES (%s, %s, %s)
             RETURNING id
-        """, (request.user_id, request.sync_id, "pending"))
+        """, (req.user_id, req.sync_id, "pending"))
         
         sync_log_id = cursor.fetchone()["id"]
         
         # Ölçümleri kaydet
-        if request.measurements:
-            for measurement in request.measurements:
+        if req.measurements:
+            for measurement in req.measurements:
                 cursor.execute("""
                     INSERT INTO measurements (
                         user_id, measurement_type, value, unit, 
                         measurement_date, notes
                     ) VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
-                    request.user_id,
+                    req.user_id,
                     measurement.measurement_type,
                     measurement.value,
                     measurement.unit,
@@ -472,8 +503,8 @@ async def sync_data(request: SyncRequest, conn=Depends(get_db)):
                 items_synced += 1
         
         # Ruh hallerini kaydet
-        if request.moods:
-            for mood in request.moods:
+        if req.moods:
+            for mood in req.moods:
                 # Her gün sadece 1 mood
                 cursor.execute("""
                     INSERT INTO moods (
@@ -487,7 +518,7 @@ async def sync_data(request: SyncRequest, conn=Depends(get_db)):
                         sleep_hours = EXCLUDED.sleep_hours,
                         notes = EXCLUDED.notes
                 """, (
-                    request.user_id,
+                    req.user_id,
                     mood.emoji,
                     mood.energy_level,
                     mood.stress_level,
@@ -507,14 +538,14 @@ async def sync_data(request: SyncRequest, conn=Depends(get_db)):
         # Kullanıcı last_sync'i güncelle
         cursor.execute("""
             UPDATE users SET last_sync = %s WHERE id = %s
-        """, (datetime.utcnow(), request.user_id))
+        """, (datetime.utcnow(), req.user_id))
         
         conn.commit()
         
         return SyncResponse(
             status="success",
             items_synced=items_synced,
-            message=f"{len(request.measurements)} measurements and {len(request.moods)} moods synced"
+            message=f"{len(req.measurements)} measurements and {len(req.moods)} moods synced"
         )
         
     except HTTPException:
@@ -534,7 +565,9 @@ async def sync_data(request: SyncRequest, conn=Depends(get_db)):
 # ============================================================================
 
 @app.get("/api/measurements/{measurement_type}")
+@limiter.limit("60/minute")  # ✅ Rate limit: 60 requests per minute
 async def get_measurements(
+    request: Request,
     measurement_type: str,
     days: int = 30,
     token: str = None,
@@ -584,7 +617,13 @@ async def get_measurements(
         cursor.close()
 
 @app.get("/api/moods")
-async def get_moods(days: int = 30, token: str = None, conn=Depends(get_db)):
+@limiter.limit("60/minute")  # ✅ Rate limit: 60 requests per minute
+async def get_moods(
+    request: Request,
+    days: int = 30,
+    token: str = None,
+    conn=Depends(get_db)
+):
     """Ruh hali verilerini al (Son 30 gün)"""
     if not token:
         raise HTTPException(status_code=401, detail="Token required")
